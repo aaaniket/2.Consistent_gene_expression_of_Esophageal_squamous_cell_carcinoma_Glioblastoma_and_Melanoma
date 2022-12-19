@@ -1,1 +1,95 @@
+(SAMPLE,)=glob_wildcards("rawReads/{sample}.fastq.gz")
+
+rule all:
+    input:
+        expand("rawQC/{sample}_fastqc.{extension}", sample=SAMPLE,extension=["zip","html"]),
+        expand("multiqc_report.html"),
+        expand("trimmedreads{sample}.fastq.html", sample=SAMPLE),
+        expand("hisat2/{sample}.sam",sample=SAMPLE),
+        expand("hisat2/{sample}_hisat2_sorted.bam",sample=SAMPLE),
+        expand("hisat2/{sample}.vcf",sample=SAMPLE),
+        
+        
+rule rawFastqc:
+    input:
+        rawread="rawReads/{sample}.fastq.gz",
+    output:
+        zip="rawQC/{sample}_fastqc.zip",
+        html="rawQC/{sample}_fastqc.html",
+    threads:
+        1
+    params:
+        path="rawQC/",
+    shell:
+        """
+        fastqc {input.rawread} --threads {threads} -o {params.path}
+        """
+        
+        
+rule multiqc:
+    input:
+        rawqc=expand("rawQC/{sample}_fastqc.zip",sample=SAMPLE),
+    output:
+       "multiqc_report.html"
+    shell:
+        """
+        multiqc {input.rawqc}
+        """
+        
+rule fastp:
+    input:
+         read="rawReads/{sample}.fastq.gz",
+    output:
+         read="trimmedreads/{sample}.fastq.gz",
+         report_html= "trimmedreads{sample}.fastq.html",
+         
+    threads: 
+        4
+    shell:
+         """
+         fastp --thread {threads} -i {input.read} -o {output.read} -h {output.report_html}
+         """
+         
+rule hisat2_indexing:
+    input:
+        ref="genome.fa"
+    output:
+        touch("hisat2/makeidx.done")
+    params:
+        threads=20,
+        idx="hisat2/genome_hisat2.idx"
+    shell:
+        """
+        hisat2-build -p {params.threads} {input.ref} {params.idx}
+        """
+            
+            
+rule hisat2_Alignment:
+    input:
+        idxdone="hisat2/makeidx.done",
+        trim1="trimmedreads/{sample}.fastq.gz",
+    output:
+        "hisat2/{sample}.sam"
+    params:
+        idx="hisat2/genome_hisat2.idx",
+        threads=20
+    shell:
+        """
+        hisat2 -p {params.threads} -x {params.idx}  -U {input.trim1} -S {output}
+        """
+                
+                
+                
+rule convert_samtobam:
+    input:
+        "hisat2/{sample}.sam"
+    output:
+        "hisat2/{sample}_hisat2_sorted.bam"
+    threads:
+        4
+    shell:
+        """
+        samtools view -@ {threads} -b -o {output} {input}
+        """
+        
 
